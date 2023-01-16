@@ -55,10 +55,11 @@ var (
 				log.Fatalf(err.Error())
 			}
 
-			err = sendList(conn, dataConn)
+			err = sendList(conn, dataConn, "/")
 			if err != nil {
 				log.Fatal(err)
 			}
+			tree()
 			return
 		},
 	}

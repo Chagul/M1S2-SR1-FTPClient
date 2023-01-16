@@ -9,15 +9,16 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sort"
 )
 
 var retryDone = 0
+var firstPASV = true
+var paths = make([]file,0)
 
-type fileList struct {
-	files       []fileList
-	directories []fileList
+type file struct {
+	path string
 	directory   bool
-	path        string
 }
 
 func UserConn(user string, pwd string, conn *net.TCPConn) error {
@@ -76,6 +77,10 @@ func GetDataConn(conn *net.TCPConn) (*net.TCPConn, error) {
 	reader := bufio.NewReader(io.Reader(conn))
 	line, _, err := reader.ReadLine()
 	lineString := string(line)
+	if(!firstPASV){
+		line, _, err = reader.ReadLine()
+		lineString = string(line)
+	}
 	responseForIPAndPort := lineString[strings.Index(lineString, "(")+1 : strings.LastIndex(lineString, ")")]
 	arrayResponseForIPAndPort := strings.Split(responseForIPAndPort, ",")
 	ipAddr := strings.Join(arrayResponseForIPAndPort[0:4], ".")
@@ -99,6 +104,7 @@ func GetDataConn(conn *net.TCPConn) (*net.TCPConn, error) {
 	if err != nil {
 		return nil, err
 	}
+	firstPASV = false;
 	return connData, nil
 }
 func constructStringToSend(cmd string, stringToAppend string) (string, error) {
@@ -109,6 +115,8 @@ func constructStringToSend(cmd string, stringToAppend string) (string, error) {
 		return "PASS " + stringToAppend + "\n", nil
 	case "LIST":
 		return "LIST\n", nil
+	case "CWD":
+		return "CWD " + stringToAppend + "\n", nil
 	}
 	return "", errors.New("command" + cmd + "not found/supported")
 }
@@ -127,7 +135,7 @@ func GetIpFromURL(url string) (*net.TCPAddr, error) {
 	return addr, nil
 }
 
-func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, filelist fileList) (fileList, error) {
+func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string) error {
 	req, err := constructStringToSend("LIST", "")
 	if err != nil {
 		log.Fatalf(err.Error())
@@ -142,18 +150,83 @@ func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, filelist fileList) (
 	println("From conn", string(reply))
 	reply = make([]byte, 1024)
 	dataConn.Read(reply)
-	println("From dataConn", string(reply))
-	path := "pouet"
-	directories, files, pathBase := parseAnswerList(string(reply), path)
-	fileListThisLevel := &fileList{
-		files:       files,
-		directories: directories,
-		directory:   false,
-		path:        pathBase,
+	defer dataConn.Close()
+	//println("From dataConn", string(reply))
+	pathss := parseAnswerList(string(reply), base)
+	for _, val := range pathss{
+		if(val.directory){
+			dataConn, err := GetDataConn(mainConn)
+			if(err != nil){
+				log.Fatalf("rip : %s", err.Error())
+			}
+			req, err = constructStringToSend("CWD", val.path)
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
+			fmt.Printf("sending %s\n", req)
+			_, err = mainConn.Write([]byte(req))
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
+			reader := bufio.NewReader(io.Reader(mainConn))
+			line, _, err := reader.ReadLine()
+			lineString := string(line)
+			fmt.Println(lineString)
+			//go func() {
+			err = sendList(mainConn, dataConn, val.path)
+			if err != nil{
+				log.Fatalf("rip : %s", err.Error())
+			}
+			dataConn.Close()
+			//}()
+		}
 	}
-	return *fileListThisLevel, nil
+	for _,vals := range pathss{
+		paths = append(paths, vals)
+	}
+	return nil
 }
 
-func parseAnswerList(answer string, pathBase string) ([]fileList, []fileList, string) {
-	return nil, nil, ""
+func parseAnswerList(answer string, base string) []file{
+	pathss := make([]file, 0)
+	lines := make([]string, 0) 
+	var j = 0
+	for i := 0; i < len(answer); i++{
+		if(answer[i] == '\n'){
+			lines = append(lines,answer[j:i-1])
+			j = i+1
+		}
+	}
+	for _, val := range lines{
+		currentFile := file{}
+		if(val[0] == 'd'){
+			currentFile.directory = true
+			currentFile.path = base + val[strings.LastIndex(val, " ")+1:] + "/"
+		}else{
+			currentFile.directory = false
+			currentFile.path = base + val[strings.LastIndex(val, " ")+1:]
+		}
+	pathss = append(pathss, currentFile)
+	}
+	return pathss
+
+}
+
+func tree() {
+	filePaths := make([]string, 0)
+	for _, file := range paths{
+		filePaths = append(filePaths, file.path)
+	}
+	sort.Strings(filePaths)
+	//depth := 0
+	parent := ""
+	for _,val := range filePaths{
+		val = strings.TrimPrefix(val, "/")
+		currentParent = [0:strings.Index(val, "/")-1]
+		if parent == ""{
+			parent = currentParent
+		}
+		val = strings.TrimLeft(val, val[0:strings.Index(val, "/")])
+		fmt.Println(val);
+	}
 }
