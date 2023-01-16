@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"log"
 	"net"
 
@@ -9,7 +8,7 @@ import (
 )
 
 const minimumArgs = 2
-const TCP_STRING = "tcp"
+const TcpString = "tcp"
 
 var (
 	addressServer string
@@ -21,12 +20,13 @@ var (
 		Short: "Display a tree-like output of the content of a ftp server ",
 		Run: func(cmd *cobra.Command, args []string) {
 
-			addr, err := GetIpFromURL(addressServer)
+			addr, err := GetIpFromURL()
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
 
-			conn, err := net.DialTCP(TCP_STRING, nil, addr)
+			conn, err := net.DialTCP(TcpString, nil, addr)
+
 			if err != nil {
 				log.Fatal(err.Error(), "are you sure your port is correct ?")
 			}
@@ -39,17 +39,6 @@ var (
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
-			_, err = conn.Write([]byte("PWD\n"))
-			fmt.Printf("Sending PWD\n")
-			if err != nil {
-				log.Fatalf(err.Error())
-			}
-			reply = make([]byte, 1024)
-			_, err = conn.Read(reply)
-			if err != nil {
-				log.Fatalf(err.Error())
-			}
-			println(string(reply))
 			dataConn, err := GetDataConn(conn)
 			if err != nil {
 				log.Fatalf(err.Error())
@@ -58,6 +47,10 @@ var (
 			err = sendList(conn, dataConn, "/")
 			if err != nil {
 				log.Fatal(err)
+			}
+			err = dataConn.Close()
+			if err != nil {
+				log.Fatalf("wtf bro\n")
 			}
 			tree()
 			return
