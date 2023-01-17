@@ -15,6 +15,7 @@ var (
 	port          int
 	user          string
 	password      string
+	maxDepth      int
 	rootCmd       = &cobra.Command{
 		Use:   "tree-ftp",
 		Short: "Display a tree-like output of the content of a ftp server ",
@@ -44,7 +45,7 @@ var (
 				log.Fatalf(err.Error())
 			}
 
-			err = sendList(conn, dataConn, "/")
+			err = sendList(conn, dataConn, "/", maxDepth, 0)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -63,6 +64,7 @@ func Execute() {
 	rootCmd.Flags().IntVar(&port, "port", 21, "Port to access ftp server")
 	rootCmd.Flags().StringVar(&user, "user", "anonymous", "User for connexion")
 	rootCmd.Flags().StringVar(&password, "password", "anonymous", "Password for connexion")
+	rootCmd.Flags().IntVar(&maxDepth, "maxDepth", -1, "Max depths of tree")
 	rootCmd.MarkFlagsRequiredTogether("addressServer", "port")
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
 	err := rootCmd.MarkFlagRequired("addressServer")

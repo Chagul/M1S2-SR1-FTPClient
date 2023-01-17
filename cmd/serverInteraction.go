@@ -10,8 +10,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
+
+const codeOkList = "150"
+const codeComingList = "226"
+const codePasvOk = "227"
+const codeCWDOk = "250"
 
 var firstPASV = true
 var paths = make([]file, 0)
@@ -61,7 +65,6 @@ func UserConn(user string, pwd string, conn *net.TCPConn) error {
 
 // GetDataConn Create a new data connection from mainConn, that send PASV/**
 func GetDataConn(conn *net.TCPConn) (*net.TCPConn, error) {
-	fmt.Printf("dataconn\n")
 	_, err := conn.Write([]byte("PASV\n"))
 	if err != nil {
 		return nil, err
@@ -69,19 +72,11 @@ func GetDataConn(conn *net.TCPConn) (*net.TCPConn, error) {
 
 	reader := bufio.NewReader(io.Reader(conn))
 	line, _, err := reader.ReadLine()
-	if err != nil {
-		fmt.Printf("POUET1 ; %s", err)
+	if err != nil && !strings.Contains(string(line), codePasvOk) {
+		log.Fatalf(err.Error())
 	}
 
 	lineString := string(line)
-	if !firstPASV {
-		line, _, err = reader.ReadLine()
-		if err != nil {
-			fmt.Printf("POUET2 ; %s", err)
-		}
-		lineString = string(line)
-	}
-
 	err, ipAddrDataConn, portDataConn := getIPAndPortFromResponse(lineString)
 	if err != nil {
 		return nil, err
@@ -130,7 +125,7 @@ func GetIpFromURL() (*net.TCPAddr, error) {
 }
 
 // sendList  send the command list to the mainConn, and CWD to all directories returned to recursively call sendList with them**/
-func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string) error {
+func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDepth int, currentDepth int) error {
 	fmt.Printf("sendList\n")
 	req, err := constructStringToSend("LIST", "")
 	if err != nil {
@@ -142,19 +137,26 @@ func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string) error {
 		log.Fatalf(err.Error())
 	}
 
-	reply := make([]byte, 1024)
+	readerMainConn := bufio.NewReader(io.Reader(mainConn))
+	line, _, err := readerMainConn.ReadLine()
 
-	//to ignore ok
-	_, err = mainConn.Read(reply)
-	if err != nil {
-		log.Fatalf("%s", err.Error())
+	if err != nil || !strings.Contains(string(line), codeOkList) {
+		log.Fatalf("LIST RETURN ERROR")
 	}
-	reply = make([]byte, 1024)
-	_, err = dataConn.Read(reply)
-	if err != nil && err != io.EOF {
-		log.Fatalf("EOF ?%s\n", err.Error())
+
+	readerDataConn := bufio.NewReader(io.Reader(dataConn))
+	lines := getListLines(readerDataConn)
+	pathss := parseAnswerList(lines, base)
+	line, _, err = readerMainConn.ReadLine()
+	if (err != nil && err != io.EOF) || !strings.Contains(string(line), codeComingList) {
+		log.Fatalf("Fin liste %s", err.Error())
 	}
-	pathss := parseAnswerList(string(reply), base)
+	if currentDepth == maxDepth {
+		for _, vals := range pathss {
+			paths = append(paths, vals)
+		}
+		return nil
+	}
 	for _, val := range pathss {
 		if val.directory {
 			dataConn, err = GetDataConn(mainConn)
@@ -166,20 +168,17 @@ func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string) error {
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
-
 			_, err = mainConn.Write([]byte(req))
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
 
-			readerMainConn := bufio.NewReader(io.Reader(mainConn))
-			line, _, err := readerMainConn.ReadLine()
-			lineString := string(line)
-			fmt.Println(lineString)
-			if err != nil {
+			line, _, err = readerMainConn.ReadLine()
+			if err != nil || !strings.Contains(string(line), codeCWDOk) {
 				fmt.Printf("Err while readline")
 			}
-			err = sendList(mainConn, dataConn, val.path)
+
+			err = sendList(mainConn, dataConn, val.path, maxDepth, currentDepth+1)
 			if err != nil {
 				log.Fatalf("rip : %s", err.Error())
 			}
@@ -197,16 +196,8 @@ func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string) error {
 }
 
 // parseAnswerList parse the asnwer from the list command, add absolute path to the global array of struct paths
-func parseAnswerList(answer string, base string) []file {
+func parseAnswerList(lines []string, base string) []file {
 	pathss := make([]file, 0)
-	lines := make([]string, 0)
-	var j = 0
-	for i := 0; i < len(answer); i++ {
-		if answer[i] == '\n' {
-			lines = append(lines, answer[j:i-1])
-			j = i + 1
-		}
-	}
 	for _, val := range lines {
 		currentFile := file{}
 		if val[0] == 'd' {
@@ -230,13 +221,13 @@ func tree() {
 	for _, val := range paths {
 		fmt.Printf("%s\n", val.path)
 	}
-	time.Sleep(time.Second * 10)
+	//time.Sleep(time.Second * 10)
 	//depth := 0
 	space := "    "
 	trail := "---"
 	//branch := "│   "
 	tee := "├── "
-	//last :=   "└── "
+	//last := "└── "
 	parent := paths[0].path
 	parent = strings.TrimLeft(parent, "/")
 	fmt.Printf("%s\n\t%s", parent, tee)
@@ -287,4 +278,17 @@ func getIPAndPortFromResponse(reply string) (error, string, int) {
 	}
 	port := numberToMultiply*256 + numberToAdd
 	return nil, ipAddr, port
+}
+
+func getListLines(readerDataConn *bufio.Reader) []string {
+	lines := make([]string, 0)
+	line, _, err := readerDataConn.ReadLine()
+	for err == nil {
+		lines = append(lines, string(line))
+		line, _, err = readerDataConn.ReadLine()
+	}
+	if err != nil && err != io.EOF {
+		log.Fatalf(err.Error())
+	}
+	return lines
 }
