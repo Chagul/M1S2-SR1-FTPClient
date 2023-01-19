@@ -1,14 +1,16 @@
 package cmd
 
 import (
+	"github.com/spf13/cobra"
 	"log"
 	"net"
-
-	"github.com/spf13/cobra"
+	model "tree-ftp/tree"
+	constant "tree-ftp/util/global"
 )
 
 const minimumArgs = 2
-const TcpString = "tcp"
+
+var rootTree = model.Node{}
 
 var (
 	addressServer string
@@ -26,12 +28,12 @@ var (
 				log.Fatalf(err.Error())
 			}
 
-			conn, err := net.DialTCP(TcpString, nil, addr)
+			conn, err := net.DialTCP(constant.TcpString, nil, addr)
 
 			if err != nil {
 				log.Fatal(err.Error(), "are you sure your port is correct ?")
 			}
-			reply := make([]byte, 1024)
+			reply := make([]byte, constant.SizeAnswer)
 			_, err = conn.Read(reply)
 			if err != nil {
 				log.Fatal(err.Error())
@@ -44,16 +46,20 @@ var (
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
-
-			err = sendList(conn, dataConn, "/", maxDepth, 0)
+			rootTree.InitNode()
+			rootTree.Filepath = "/"
+			rootTree.Filename = "/"
+			rootTree.IsDirectory = true
+			rootTree.Depth = 0
+			err = sendList(conn, dataConn, rootTree.Filepath, maxDepth, 1, &rootTree)
 			if err != nil {
 				log.Fatal(err)
 			}
 			err = dataConn.Close()
 			if err != nil {
-				log.Fatalf("wtf bro\n")
+				log.Fatalf("Err while closing conn\n")
 			}
-			tree()
+			rootTree.DisplayTree()
 			return
 		},
 	}
@@ -61,10 +67,10 @@ var (
 
 func Execute() {
 	rootCmd.Flags().StringVar(&addressServer, "addressServer", "", "Address to server")
-	rootCmd.Flags().IntVar(&port, "port", 21, "Port to access ftp server")
+	rootCmd.Flags().IntVar(&port, "port", constant.DefaultPortTCP, "Port to access ftp server")
 	rootCmd.Flags().StringVar(&user, "user", "anonymous", "User for connexion")
 	rootCmd.Flags().StringVar(&password, "password", "anonymous", "Password for connexion")
-	rootCmd.Flags().IntVar(&maxDepth, "maxDepth", -1, "Max depths of tree")
+	rootCmd.Flags().IntVar(&maxDepth, "maxDepth", constant.DefaultMaxDepth, "Max depths of tree")
 	rootCmd.MarkFlagsRequiredTogether("addressServer", "port")
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
 	err := rootCmd.MarkFlagRequired("addressServer")

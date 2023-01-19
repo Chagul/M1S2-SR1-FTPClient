@@ -7,23 +7,12 @@ import (
 	"io"
 	"log"
 	"net"
-	"sort"
 	"strconv"
 	"strings"
+	tree2 "tree-ftp/tree"
+	constantFTP "tree-ftp/util/ftp"
+	constant "tree-ftp/util/global"
 )
-
-const codeOkList = "150"
-const codeComingList = "226"
-const codePasvOk = "227"
-const codeCWDOk = "250"
-
-var firstPASV = true
-var paths = make([]file, 0)
-
-type file struct {
-	path      string
-	directory bool
-}
 
 // UserConn Init TCP conn with given user and pwd, if both are not precised, anonymous is the default/**
 func UserConn(user string, pwd string, conn *net.TCPConn) error {
@@ -38,7 +27,7 @@ func UserConn(user string, pwd string, conn *net.TCPConn) error {
 		log.Fatalf(err.Error())
 	}
 
-	reply := make([]byte, 1024)
+	reply := make([]byte, constant.SizeAnswer)
 	_, err = conn.Read(reply)
 	if err != nil {
 		log.Fatalf(err.Error())
@@ -54,7 +43,7 @@ func UserConn(user string, pwd string, conn *net.TCPConn) error {
 		log.Fatalf(err.Error())
 	}
 
-	reply = make([]byte, 1024)
+	reply = make([]byte, constant.SizeAnswer)
 	_, err = conn.Read(reply)
 	if err != nil {
 		log.Fatalf(err.Error())
@@ -72,7 +61,7 @@ func GetDataConn(conn *net.TCPConn) (*net.TCPConn, error) {
 
 	reader := bufio.NewReader(io.Reader(conn))
 	line, _, err := reader.ReadLine()
-	if err != nil && !strings.Contains(string(line), codePasvOk) {
+	if err != nil && !strings.Contains(string(line), constantFTP.CodePasvOk) {
 		log.Fatalf(err.Error())
 	}
 
@@ -86,12 +75,11 @@ func GetDataConn(conn *net.TCPConn) (*net.TCPConn, error) {
 		IP:   net.ParseIP(ipAddrDataConn),
 		Port: portDataConn,
 	}
-	connData, err := net.DialTCP(TcpString, nil, ip)
+	connData, err := net.DialTCP(constant.TcpString, nil, ip)
 	if err != nil {
 		return nil, err
 	}
 
-	firstPASV = false
 	return connData, nil
 }
 
@@ -125,7 +113,7 @@ func GetIpFromURL() (*net.TCPAddr, error) {
 }
 
 // sendList  send the command list to the mainConn, and CWD to all directories returned to recursively call sendList with them**/
-func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDepth int, currentDepth int) error {
+func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDepth int, currentDepth int, currentNode *tree2.Node) error {
 	fmt.Printf("sendList\n")
 	req, err := constructStringToSend("LIST", "")
 	if err != nil {
@@ -140,31 +128,29 @@ func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDept
 	readerMainConn := bufio.NewReader(io.Reader(mainConn))
 	line, _, err := readerMainConn.ReadLine()
 
-	if err != nil || !strings.Contains(string(line), codeOkList) {
+	if err != nil || !strings.Contains(string(line), constantFTP.CodeOkList) {
 		log.Fatalf("LIST RETURN ERROR")
 	}
 
 	readerDataConn := bufio.NewReader(io.Reader(dataConn))
 	lines := getListLines(readerDataConn)
-	pathss := parseAnswerList(lines, base)
+	children := parseAnswerList(lines, base, currentDepth)
 	line, _, err = readerMainConn.ReadLine()
-	if (err != nil && err != io.EOF) || !strings.Contains(string(line), codeComingList) {
+	if (err != nil && err != io.EOF) || !strings.Contains(string(line), constantFTP.CodeComingList) {
 		log.Fatalf("Fin liste %s", err.Error())
 	}
 	if currentDepth == maxDepth {
-		for _, vals := range pathss {
-			paths = append(paths, vals)
-		}
+		currentNode.AddChildren(children)
 		return nil
 	}
-	for _, val := range pathss {
-		if val.directory {
+	for _, child := range children {
+		if child.IsDirectory {
 			dataConn, err = GetDataConn(mainConn)
 			if err != nil {
 				log.Fatalf("rip : %s", err.Error())
 			}
 
-			req, err = constructStringToSend("CWD", val.path)
+			req, err = constructStringToSend("CWD", child.Filepath)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
@@ -174,11 +160,11 @@ func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDept
 			}
 
 			line, _, err = readerMainConn.ReadLine()
-			if err != nil || !strings.Contains(string(line), codeCWDOk) {
+			if err != nil || !strings.Contains(string(line), constantFTP.CodeCWDOk) {
 				fmt.Printf("Err while readline")
 			}
 
-			err = sendList(mainConn, dataConn, val.path, maxDepth, currentDepth+1)
+			err = sendList(mainConn, dataConn, child.Filepath, maxDepth, currentDepth+1, child)
 			if err != nil {
 				log.Fatalf("rip : %s", err.Error())
 			}
@@ -189,32 +175,32 @@ func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDept
 			}
 		}
 	}
-	for _, vals := range pathss {
-		paths = append(paths, vals)
-	}
+	currentNode.AddChildren(children)
 	return nil
 }
 
 // parseAnswerList parse the asnwer from the list command, add absolute path to the global array of struct paths
-func parseAnswerList(lines []string, base string) []file {
-	pathss := make([]file, 0)
+func parseAnswerList(lines []string, base string, depth int) []*tree2.Node {
+	children := make([]*tree2.Node, 0)
 	for _, val := range lines {
-		currentFile := file{}
+		currentNode := &tree2.Node{}
+		currentNode.Depth = depth
 		if val[0] == 'd' {
-			currentFile.directory = true
-			currentFile.path = base + val[strings.LastIndex(val, " ")+1:] + "/"
+			currentNode.IsDirectory = true
+			currentNode.Filepath = base + val[strings.LastIndex(val, " ")+1:] + "/"
 		} else {
-			currentFile.directory = false
-			currentFile.path = base + val[strings.LastIndex(val, " ")+1:]
+			currentNode.IsDirectory = false
+			currentNode.Filepath = base + val[strings.LastIndex(val, " ")+1:]
 		}
-		pathss = append(pathss, currentFile)
+		currentNode.Filename = val[strings.LastIndex(val, " ")+1:]
+		children = append(children, currentNode)
 	}
-	return pathss
+	return children
 
 }
 
 // tree Construct and print the tree-output from path in paths **/
-func tree() {
+/*func tree() {
 	sort.Slice(paths, func(i, j int) bool {
 		return paths[i].path < paths[j].path
 	})
@@ -250,7 +236,7 @@ func tree() {
 			}
 		}
 	}
-	/*val = strings.TrimPrefix(val, "/")
+	val = strings.TrimPrefix(val, "/")
 	currentParent := val[0:strings.Index(val, "/")]
 	cutVal := strings.TrimLeft(val, val[0:strings.Index(val, "/")+1])
 	for currentParent == parent {
@@ -258,8 +244,8 @@ func tree() {
 		currentParent = cutVal[0:strings.Index(val, "/")]
 		cutVal = strings.TrimLeft(cutVal, cutVal[0:strings.Index(val, "/")+1])
 	}
-	fmt.Printf("%s %s\n", tee, cutVal)*/
-}
+	fmt.Printf("%s %s\n", tee, cutVal)
+}*/
 
 /*
 * getIPAndPortFromResponse parse the reply from PASV request to calculate and return the IP address and the port*
