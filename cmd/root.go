@@ -1,65 +1,66 @@
 package cmd
 
 import (
-	"fmt"
+	"github.com/spf13/cobra"
 	"log"
 	"net"
-
-	"github.com/spf13/cobra"
+	"tree-ftp/tcpconn"
+	model "tree-ftp/tree"
+	constant "tree-ftp/util/global"
 )
 
 const minimumArgs = 2
-const TCP_STRING = "tcp"
+
+var rootTree = model.Node{}
 
 var (
 	addressServer string
 	port          int
 	user          string
 	password      string
+	maxDepth      int
 	rootCmd       = &cobra.Command{
 		Use:   "tree-ftp",
 		Short: "Display a tree-like output of the content of a ftp server ",
 		Run: func(cmd *cobra.Command, args []string) {
 
-			addr, err := GetIpFromURL(addressServer)
+			addr, err := tcpconn.GetIpFromURL(port, addressServer)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
 
-			conn, err := net.DialTCP(TCP_STRING, nil, addr)
+			conn, err := net.DialTCP(constant.TcpString, nil, addr)
+
 			if err != nil {
 				log.Fatal(err.Error(), "are you sure your port is correct ?")
 			}
-			reply := make([]byte, 1024)
+			reply := make([]byte, constant.SizeAnswer)
 			_, err = conn.Read(reply)
 			if err != nil {
 				log.Fatal(err.Error())
 			}
-			err = UserConn(user, password, conn)
+			err = tcpconn.UserConn(user, password, conn)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
-			_, err = conn.Write([]byte("PWD\n"))
-			fmt.Printf("Sending PWD\n")
+			dataConn, err := tcpconn.GetDataConn(conn)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
-			reply = make([]byte, 1024)
-			_, err = conn.Read(reply)
-			if err != nil {
-				log.Fatalf(err.Error())
-			}
-			println(string(reply))
-			dataConn, err := GetDataConn(conn)
-			if err != nil {
-				log.Fatalf(err.Error())
-			}
-
-			err = sendList(conn, dataConn, "/")
+			rootTree.InitNode()
+			rootTree.Filepath = "/"
+			rootTree.Filename = "/"
+			rootTree.IsDirectory = true
+			rootTree.Depth = 0
+			err = tcpconn.SendList(conn, dataConn, rootTree.Filepath, maxDepth, 1, &rootTree)
 			if err != nil {
 				log.Fatal(err)
 			}
-			tree()
+			err = dataConn.Close()
+			if err != nil {
+				log.Fatalf("Err while closing conn\n")
+			}
+			rootTree.DisplayTree()
 			return
 		},
 	}
@@ -67,9 +68,10 @@ var (
 
 func Execute() {
 	rootCmd.Flags().StringVar(&addressServer, "addressServer", "", "Address to server")
-	rootCmd.Flags().IntVar(&port, "port", 21, "Port to access ftp server")
+	rootCmd.Flags().IntVar(&port, "port", constant.DefaultPortTCP, "Port to access ftp server")
 	rootCmd.Flags().StringVar(&user, "user", "anonymous", "User for connexion")
 	rootCmd.Flags().StringVar(&password, "password", "anonymous", "Password for connexion")
+	rootCmd.Flags().IntVar(&maxDepth, "maxDepth", constant.DefaultMaxDepth, "Max depths of tree")
 	rootCmd.MarkFlagsRequiredTogether("addressServer", "port")
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
 	err := rootCmd.MarkFlagRequired("addressServer")
