@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 	"log"
 	"net"
+	"tree-ftp/tcpconn"
 	model "tree-ftp/tree"
 	constant "tree-ftp/util/global"
 )
@@ -23,7 +24,7 @@ var (
 		Short: "Display a tree-like output of the content of a ftp server ",
 		Run: func(cmd *cobra.Command, args []string) {
 
-			addr, err := GetIpFromURL()
+			addr, err := tcpconn.GetIpFromURL(port, addressServer)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
@@ -38,11 +39,11 @@ var (
 			if err != nil {
 				log.Fatal(err.Error())
 			}
-			err = UserConn(user, password, conn)
+			err = tcpconn.UserConn(user, password, conn)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
-			dataConn, err := GetDataConn(conn)
+			dataConn, err := tcpconn.GetDataConn(conn)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
@@ -51,7 +52,7 @@ var (
 			rootTree.Filename = "/"
 			rootTree.IsDirectory = true
 			rootTree.Depth = 0
-			err = sendList(conn, dataConn, rootTree.Filepath, maxDepth, 1, &rootTree)
+			err = tcpconn.SendList(conn, dataConn, rootTree.Filepath, maxDepth, 1, &rootTree)
 			if err != nil {
 				log.Fatal(err)
 			}

@@ -1,4 +1,4 @@
-package cmd
+package tcpconn
 
 import (
 	"bufio"
@@ -98,7 +98,7 @@ func constructStringToSend(cmd string, stringToAppend string) (string, error) {
 	return "", errors.New("command" + cmd + "not found/supported")
 }
 
-func GetIpFromURL() (*net.TCPAddr, error) {
+func GetIpFromURL(port int, addressServer string) (*net.TCPAddr, error) {
 	ip, err := net.LookupIP(addressServer)
 	if err != nil {
 		return nil, err
@@ -112,9 +112,9 @@ func GetIpFromURL() (*net.TCPAddr, error) {
 	return addr, nil
 }
 
-// sendList  send the command list to the mainConn, and CWD to all directories returned to recursively call sendList with them**/
-func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDepth int, currentDepth int, currentNode *tree2.Node) error {
-	fmt.Printf("sendList\n")
+// SendList send the command list to the mainConn, and CWD to all directories returned to recursively call sendList with them**/
+func SendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDepth int, currentDepth int, currentNode *tree2.Node) error {
+	fmt.Printf("SendList %s \n", base)
 	req, err := constructStringToSend("LIST", "")
 	if err != nil {
 		log.Fatalf(err.Error())
@@ -164,15 +164,12 @@ func sendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDept
 				fmt.Printf("Err while readline")
 			}
 
-			err = sendList(mainConn, dataConn, child.Filepath, maxDepth, currentDepth+1, child)
+			err = SendList(mainConn, dataConn, child.Filepath, maxDepth, currentDepth+1, child)
 			if err != nil {
 				log.Fatalf("rip : %s", err.Error())
 			}
 
 			err = dataConn.Close()
-			if err != nil {
-				log.Fatalf("pouet %s", err.Error())
-			}
 		}
 	}
 	currentNode.AddChildren(children)
@@ -199,54 +196,6 @@ func parseAnswerList(lines []string, base string, depth int) []*tree2.Node {
 
 }
 
-// tree Construct and print the tree-output from path in paths **/
-/*func tree() {
-	sort.Slice(paths, func(i, j int) bool {
-		return paths[i].path < paths[j].path
-	})
-	for _, val := range paths {
-		fmt.Printf("%s\n", val.path)
-	}
-	//time.Sleep(time.Second * 10)
-	//depth := 0
-	space := "    "
-	trail := "---"
-	//branch := "│   "
-	tee := "├── "
-	//last := "└── "
-	parent := paths[0].path
-	parent = strings.TrimLeft(parent, "/")
-	fmt.Printf("%s\n\t%s", parent, tee)
-	//depth := 0
-	for _, val := range paths {
-		pathss := strings.Split(val.path, "/")
-		fmt.Println(pathss)
-		for i := range pathss {
-			fmt.Printf(pathss[i] + "\n")
-
-			if pathss[i] == parent {
-				fmt.Printf("%s%s", space, trail)
-			} else {
-				if val.directory {
-					fmt.Printf("%s%s", tee, pathss[i])
-				} else {
-					fmt.Printf("%s%s", trail, pathss[i])
-				}
-				break
-			}
-		}
-	}
-	val = strings.TrimPrefix(val, "/")
-	currentParent := val[0:strings.Index(val, "/")]
-	cutVal := strings.TrimLeft(val, val[0:strings.Index(val, "/")+1])
-	for currentParent == parent {
-		fmt.Printf("%s", tee)
-		currentParent = cutVal[0:strings.Index(val, "/")]
-		cutVal = strings.TrimLeft(cutVal, cutVal[0:strings.Index(val, "/")+1])
-	}
-	fmt.Printf("%s %s\n", tee, cutVal)
-}*/
-
 /*
 * getIPAndPortFromResponse parse the reply from PASV request to calculate and return the IP address and the port*
  */
@@ -266,6 +215,7 @@ func getIPAndPortFromResponse(reply string) (error, string, int) {
 	return nil, ipAddr, port
 }
 
+// getListLines read and parse the lines returned by the reader, return a string array of the line
 func getListLines(readerDataConn *bufio.Reader) []string {
 	lines := make([]string, 0)
 	line, _, err := readerDataConn.ReadLine()
