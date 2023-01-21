@@ -19,7 +19,10 @@ var (
 	user          string
 	password      string
 	maxDepth      int
-	rootCmd       = &cobra.Command{
+	directoryOnly bool
+	fullPath      bool
+
+	rootCmd = &cobra.Command{
 		Use:   "tree-ftp",
 		Short: "Display a tree-like output of the content of a ftp server ",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -60,7 +63,7 @@ var (
 			if err != nil {
 				log.Fatalf("Err while closing conn\n")
 			}
-			rootTree.DisplayTree()
+			rootTree.DisplayTree(fullPath, directoryOnly)
 			return
 		},
 	}
@@ -72,6 +75,8 @@ func Execute() {
 	rootCmd.Flags().StringVar(&user, "user", "anonymous", "User for connexion")
 	rootCmd.Flags().StringVar(&password, "password", "anonymous", "Password for connexion")
 	rootCmd.Flags().IntVar(&maxDepth, "maxDepth", constant.DefaultMaxDepth, "Max depths of tree")
+	rootCmd.Flags().BoolVar(&fullPath, "fullPath", false, "Display fullpath of files")
+	rootCmd.Flags().BoolVar(&directoryOnly, "directoryOnly", false, "Display directories only")
 	rootCmd.MarkFlagsRequiredTogether("addressServer", "port")
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
 	err := rootCmd.MarkFlagRequired("addressServer")

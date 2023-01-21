@@ -27,20 +27,38 @@ func (node *Node) AddChildren(children []*Node) {
 	}
 }
 
-func (node *Node) DisplayTree() {
+func (node *Node) DisplayTree(fullPath bool, directoryOnly bool) {
 	space := "    "
 	tee := "├── "
 	last := "└── "
-
+	var strFile = ""
+	if fullPath {
+		strFile = node.Filepath
+	} else {
+		strFile = node.Filename
+	}
 	if node.IsDirectory {
 		repeatSpace := 0
 		if node.Depth == 0 {
-			fmt.Printf("%s\n", node.Filename)
+			fmt.Printf("%s\n", strFile)
 		} else {
 			repeatSpace = node.Depth + 1
-			fmt.Printf("%s\n", node.Filename)
+			fmt.Printf("%s\n", strFile)
 		}
+		firstOnePrinted := false
 		for i, child := range node.Children {
+			if directoryOnly {
+				if child.IsDirectory {
+					if i != len(node.Children)-1 || !firstOnePrinted {
+						fmt.Printf("%s%s", strings.Repeat(space, repeatSpace), tee)
+						firstOnePrinted = true
+					} else {
+						fmt.Printf("%s%s", strings.Repeat(space, repeatSpace), last)
+					}
+					child.DisplayTree(fullPath, directoryOnly)
+				}
+				continue
+			}
 			if i == len(node.Children)-1 {
 				fmt.Printf("%s%s", strings.Repeat(space, repeatSpace), last)
 			} else if i == 0 {
@@ -48,9 +66,9 @@ func (node *Node) DisplayTree() {
 			} else {
 				fmt.Printf("%s%s", strings.Repeat(space, repeatSpace), tee)
 			}
-			child.DisplayTree()
+			child.DisplayTree(fullPath, directoryOnly)
 		}
-	} else {
-		fmt.Printf("%s\n", node.Filename)
+	} else if !directoryOnly {
+		fmt.Printf("%s\n", strFile)
 	}
 }
