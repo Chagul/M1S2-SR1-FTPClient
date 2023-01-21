@@ -29,21 +29,28 @@ func (node *Node) AddChildren(children []*Node) {
 
 func (node *Node) DisplayTree() {
 	space := "    "
-	trail := "---"
-	//branch := "│   "
 	tee := "├── "
 	last := "└── "
+
 	if node.IsDirectory {
-		if len(node.Children) == 0 {
-			fmt.Printf("%s%s\n", last, node.Filename)
+		repeatSpace := 0
+		if node.Depth == 0 {
+			fmt.Printf("%s\n", node.Filename)
 		} else {
-			fmt.Printf("%s%s\n", tee, node.Filename)
+			repeatSpace = node.Depth + 1
+			fmt.Printf("%s\n", node.Filename)
 		}
-		for _, child := range node.Children {
-			fmt.Printf("%s", strings.Repeat(space, child.Depth))
+		for i, child := range node.Children {
+			if i == len(node.Children)-1 {
+				fmt.Printf("%s%s", strings.Repeat(space, repeatSpace), last)
+			} else if i == 0 {
+				fmt.Printf("%s%s", strings.Repeat(space, repeatSpace), tee)
+			} else {
+				fmt.Printf("%s%s", strings.Repeat(space, repeatSpace), tee)
+			}
 			child.DisplayTree()
 		}
 	} else {
-		fmt.Printf("%s%s\n", trail, node.Filename)
+		fmt.Printf("%s\n", node.Filename)
 	}
 }
