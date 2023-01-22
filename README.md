@@ -165,8 +165,15 @@ func GetIpFromURL(port int, addressServer string) (*net.TCPAddr, error) {
 
 Une mécanique de retry est mise en place dans ce programme. En effet chaque opération avec le serveur est répétée jusqu'à 3 fois.
 C'est un mécanisme important car il peut y avoir une micro coupure avec le connexion distante, et si celle-ci tombe au mauvais 
-moment, cela provoquerait un arrêt total du programme.
+moment, cela provoquerait un arrêt total du programme. 
 
+Afin de faciliter la gestion des erreurs et comme il est de bonne pratique de le faire en go, toutes les erreurs possibles sont remontées
+jusqu'a **root.go**. Si celle-ci necessitent un arrêt du programme, c'est à cet endroit que cela sera fait. En utilisant cette
+méthode de programmation, il serait possible dans une évolution du programme d'implementer un retry sur tout un pan de celui-ci,
+en cas d'erreur grave.
 
+## UML
+
+![img.png](rsc/uml.png)
 
 ## Vidéo de fonctionnement
