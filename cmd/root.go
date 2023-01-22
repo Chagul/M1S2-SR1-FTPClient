@@ -1,17 +1,19 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
 	"log"
 	"net"
+	"os"
 	"tree-ftp/ftpconn"
 	model "tree-ftp/tree"
 	constant "tree-ftp/util/global"
 )
 
 var rootTree = model.Node{}
-var Addr *net.TCPAddr
 var (
 	addressServer string
 	port          int
@@ -20,8 +22,9 @@ var (
 	maxDepth      int
 	directoryOnly bool
 	fullPath      bool
-
-	rootCmd = &cobra.Command{
+	toJson        bool
+	jsonFile      string
+	rootCmd       = &cobra.Command{
 		Use:   "tree-ftp",
 		Short: "Display a tree-like output of the content of a ftp server ",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -63,7 +66,25 @@ var (
 			if err != nil {
 				log.Fatalf("Err while closing conn\n")
 			}
-			rootTree.DisplayTree(fullPath, directoryOnly)
+			if toJson {
+				marshal, err := json.Marshal(rootTree)
+				if err != nil {
+					log.Fatalf("Unable to marshal\n")
+				}
+				file, err := os.Create(jsonFile)
+				if err != nil {
+					log.Fatalf("Unable to create %s\n", jsonFile)
+				}
+				var outJson bytes.Buffer
+				err = json.Indent(&outJson, marshal, "", "	")
+				_, err = file.Write(outJson.Bytes())
+				if err != nil {
+					log.Fatalf("Unable to write to %s\n", jsonFile)
+				}
+				file.Close()
+			} else {
+				rootTree.DisplayTree(fullPath, directoryOnly)
+			}
 			return
 		},
 	}
@@ -77,11 +98,20 @@ func Execute() {
 	rootCmd.Flags().IntVar(&maxDepth, "maxDepth", constant.DefaultMaxDepth, "Max depths of tree")
 	rootCmd.Flags().BoolVar(&fullPath, "fullPath", false, "Display fullpath of files")
 	rootCmd.Flags().BoolVar(&directoryOnly, "directoryOnly", false, "Display directories only")
+
+	rootCmd.Flags().StringVar(&jsonFile, "jsonFile", "", "Path for json file")
+	rootCmd.Flags().BoolVar(&toJson, "toJson", false, "Output is directed in a file as a json")
+
 	err := rootCmd.MarkFlagRequired("addressServer")
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
 	rootCmd.MarkFlagsRequiredTogether("user", "password")
+	err = rootCmd.MarkFlagRequired("addressServer")
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	rootCmd.MarkFlagsRequiredTogether("toJson", "jsonFile")
 	err = rootCmd.MarkFlagRequired("addressServer")
 	if err != nil {
 		log.Fatalf(err.Error())

@@ -42,6 +42,9 @@ par défaut celui-ci est à false.
 L'option ``--fullPath`` sert à afficher les chemins complets des fichiers lors du tree. Elle prends un booléen en paramètre,
 par défaut celui-ci est à false.
 
+L'option ``--toJson`` accompagnée par ``--jsonFile`` permet d'afficher dans un fichier une version JSON de la sortie de la commande.
+Ces deux options sont indisociables.
+
 ### Exemple d'utilisation
 
 ``./tree-ftp --addressServer="l'adresse_du_serveur"``
@@ -55,6 +58,8 @@ par défaut celui-ci est à false.
 ``./tree-ftp --addressServer="l'adresse_du_serveur" --fullPath="True"``
 
 ``./tree-ftp --addressServer="l'adresse_du_serveur" --directoryOnly="True"  --fullPath="True" --maxDepth="3"``
+
+``./tree-ftp --addressServer="l'adresse_du_serveur" --directoryOnly="True"  --fullPath="True" --maxDepth="3" --toJson="True" --jsonFile="./pouet"``
 
 
 ## Fonctionnement du programme
