@@ -13,20 +13,26 @@ type Node struct {
 	Depth       int
 }
 
+// InitNode Allocate the space for the Children array
 func (node *Node) InitNode() {
 	node.Children = make([]*Node, 0)
 }
 
+// AddChild Add a child to the current node
 func (node *Node) AddChild(child *Node) {
 	node.Children = append(node.Children, child)
 }
 
+// AddChildren Add all the child to the current node
 func (node *Node) AddChildren(children []*Node) {
 	for _, child := range children {
 		node.Children = append(node.Children, child)
 	}
 }
 
+// DisplayTree Display the tree of the current node
+//If fullPath is true, display complete path of files, else just the name
+//If directoryOnly is true, display only the directories, else display both directories and files
 func (node *Node) DisplayTree(fullPath bool, directoryOnly bool) {
 	space := "    "
 	tee := "├── "
