@@ -26,13 +26,22 @@ func (node *Node) AddChild(child *Node) {
 // AddChildren Add all the child to the current node
 func (node *Node) AddChildren(children []*Node) {
 	for _, child := range children {
-		node.Children = append(node.Children, child)
+		alreadyPresent := false
+		for _, childInNode := range node.Children {
+			if childInNode == child {
+				alreadyPresent = true
+				break
+			}
+		}
+		if !alreadyPresent {
+			node.Children = append(node.Children, child)
+		}
 	}
 }
 
 // DisplayTree Display the tree of the current node
-//If fullPath is true, display complete path of files, else just the name
-//If directoryOnly is true, display only the directories, else display both directories and files
+// If fullPath is true, display complete path of files, else just the name
+// If directoryOnly is true, display only the directories, else display both directories and files
 func (node *Node) DisplayTree(fullPath bool, directoryOnly bool) {
 	space := "    "
 	tee := "├── "

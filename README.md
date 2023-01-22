@@ -71,7 +71,52 @@ Voici à quoi ressemble cette classe
 
 ![img.png](rsc/uml.png)
 
-## UML
+## Code samples
 
+La fonction qui va être présentée ici est celle qui permet de faire la première connexion, avec le mot de passe et le nom
+d'utilisateur s'ils sont fournis.
+
+```go 
+// UserConn Init TCP conn with given user and pwd, if both are not precised, anonymous is the default/**
+func UserConn(user string, pwd string, conn *net.TCPConn) error {
+    fmt.Println("User connexion")
+    stringToSend, err := constructStringToSend("USER", user) //construit la requete avec le nom d'utilisateur
+    if err != nil {
+        return err
+    }
+
+    _, err = conn.Write([]byte(stringToSend)) //Envoie la requete
+    if err != nil {
+        return err
+    }
+
+    reply := make([]byte, constant.SizeAnswer)
+    _, err = conn.Read(reply) // lis la réponse, si celle ci est nég
+    if err != nil {
+        return err
+    }
+
+    stringToSend, err = constructStringToSend("PASS", pwd) //construit la requete pour se connecter
+    if err != nil {
+        return err
+    }
+
+    _, err = conn.Write([]byte(stringToSend)) //envoie de la requête
+    if err != nil {
+        return err
+    }
+
+    reply = make([]byte, constant.SizeAnswer)
+    _, err = conn.Read(reply) //lis la réponse
+    if err != nil {
+        return err
+    }
+    fmt.Println("User connexion successful")
+    return nil
+}
+```
+
+
+k
 
 ## Vidéo de fonctionnement

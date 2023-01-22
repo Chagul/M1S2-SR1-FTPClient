@@ -1,4 +1,4 @@
-package tcpconn
+package ftpconn
 
 import (
 	"bufio"
@@ -7,66 +7,70 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 	tree2 "tree-ftp/tree"
-	constantFTP "tree-ftp/util/ftp"
+	constantFTP "tree-ftp/util/ftp/codes"
 	constant "tree-ftp/util/global"
 )
 
+type FTPConn struct {
+	MainConn *net.TCPConn
+}
+
+var retryLogin = 0
+
 // UserConn Init TCP conn with given user and pwd, if both are not precised, anonymous is the default/**
-func UserConn(user string, pwd string, conn *net.TCPConn) error {
-	fmt.Println("userconn")
-	stringToSend, err := constructStringToSend("USER", user)
+func (conn *FTPConn) UserConn(user string, pwd string) error {
+	fmt.Println("User connexion")
+
+	err := conn.SendUser(user)
 	if err != nil {
 		return err
 	}
 
-	_, err = conn.Write([]byte(stringToSend))
+	err = conn.SendPass(pwd)
 	if err != nil {
-		log.Fatalf(err.Error())
+		return err
 	}
 
 	reply := make([]byte, constant.SizeAnswer)
-	_, err = conn.Read(reply)
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
+	_, err = conn.MainConn.Read(reply)
 
-	stringToSend, err = constructStringToSend("PASS", pwd)
-	if err != nil {
+	if err != nil || !strings.Contains(string(reply), constantFTP.CodeLoginOk) {
+		if strings.Contains(string(reply), constantFTP.CodeLoginNotOk) {
+			if retryLogin == constant.MaxRetry {
+				log.Fatalf("too many retry for login/password ")
+			}
+			fmt.Println("Wrong password/login !")
+			fmt.Println("Enter your login")
+			reader := bufio.NewReader(os.Stdin)
+			login, _ := reader.ReadString('\n')
+			login = strings.Replace(login, "\n", "", -1)
+			fmt.Println("Enter your password")
+			password, _ := reader.ReadString('\n')
+			password = strings.Replace(password, "\n", "", -1)
+			retryLogin++
+			return conn.UserConn(login, password)
+
+		}
 		return err
 	}
-
-	_, err = conn.Write([]byte(stringToSend))
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
-
-	reply = make([]byte, constant.SizeAnswer)
-	_, err = conn.Read(reply)
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
-	fmt.Println("fin userconn")
+	fmt.Println("User connexion successful")
 	return nil
 }
 
 // GetDataConn Create a new data connection from mainConn, that send PASV/**
-func GetDataConn(conn *net.TCPConn) (*net.TCPConn, error) {
-	_, err := conn.Write([]byte("PASV\n"))
+func (conn *FTPConn) GetDataConn() (*FTPConn, error) {
+	readerMainConn := bufio.NewReader(conn.MainConn)
+	line, err := conn.SendPasv(readerMainConn)
 	if err != nil {
 		return nil, err
 	}
 
-	reader := bufio.NewReader(io.Reader(conn))
-	line, _, err := reader.ReadLine()
-	if err != nil && !strings.Contains(string(line), constantFTP.CodePasvOk) {
-		log.Fatalf(err.Error())
-	}
-
-	lineString := string(line)
-	err, ipAddrDataConn, portDataConn := getIPAndPortFromResponse(lineString)
+	err, ipAddrDataConn, portDataConn := getIPAndPortFromResponse(line)
 	if err != nil {
 		return nil, err
 	}
@@ -77,27 +81,19 @@ func GetDataConn(conn *net.TCPConn) (*net.TCPConn, error) {
 	}
 	connData, err := net.DialTCP(constant.TcpString, nil, ip)
 	if err != nil {
+		for i := 0; i < constant.MaxRetry; i++ {
+			time.Sleep(constant.TimeBeforeRetry * time.Second)
+			fmt.Printf("Failed to dial %s retrying in 10secondes\n", ip.IP)
+			connData, err = net.DialTCP(constant.TcpString, nil, ip)
+
+		}
 		return nil, err
 	}
 
-	return connData, nil
+	return &FTPConn{MainConn: connData}, nil
 }
 
-// constructStringToSend Construct the command that will be sent to the ftp server**/
-func constructStringToSend(cmd string, stringToAppend string) (string, error) {
-	switch cmd {
-	case "USER":
-		return "USER " + stringToAppend + "\n", nil
-	case "PASS":
-		return "PASS " + stringToAppend + "\n", nil
-	case "LIST":
-		return "LIST\n", nil
-	case "CWD":
-		return "CWD " + stringToAppend + "\n", nil
-	}
-	return "", errors.New("command" + cmd + "not found/supported")
-}
-
+// GetIpFromURL return the found IP for the given addressServer and port
 func GetIpFromURL(port int, addressServer string) (*net.TCPAddr, error) {
 	ip, err := net.LookupIP(addressServer)
 	if err != nil {
@@ -112,68 +108,57 @@ func GetIpFromURL(port int, addressServer string) (*net.TCPAddr, error) {
 	return addr, nil
 }
 
-// SendList send the command list to the mainConn, and CWD to all directories returned to recursively call sendList with them**/
-func SendList(mainConn *net.TCPConn, dataConn *net.TCPConn, base string, maxDepth int, currentDepth int, currentNode *tree2.Node) error {
+// ListFtpFiles send the command list to the mainConn, and CWD to all directories returned to recursively call ListFtpFiles with them**/
+func (conn *FTPConn) ListFtpFiles(dataConn *FTPConn, base string, maxDepth int, currentDepth int, currentNode *tree2.Node) (error, string) {
+	readerMainConn := bufio.NewReader(conn.MainConn)
+	err := conn.SendCwd(readerMainConn, base)
+	if err != nil {
+		return err, currentNode.Filepath
+	}
 	fmt.Printf("SendList %s \n", base)
-	req, err := constructStringToSend("LIST", "")
+	err = conn.SendList(readerMainConn)
 	if err != nil {
-		log.Fatalf(err.Error())
+		return err, base
 	}
 
-	_, err = mainConn.Write([]byte(req))
+	readerDataConn := bufio.NewReader(io.Reader(dataConn.MainConn))
+	lines, err := getListLines(readerDataConn)
 	if err != nil {
-		log.Fatalf(err.Error())
+		return err, base
 	}
-
-	readerMainConn := bufio.NewReader(io.Reader(mainConn))
-	line, _, err := readerMainConn.ReadLine()
-
-	if err != nil || !strings.Contains(string(line), constantFTP.CodeOkList) {
-		log.Fatalf("LIST RETURN ERROR")
-	}
-
-	readerDataConn := bufio.NewReader(io.Reader(dataConn))
-	lines := getListLines(readerDataConn)
 	children := parseAnswerList(lines, base, currentDepth)
-	line, _, err = readerMainConn.ReadLine()
+	line, _, err := readerMainConn.ReadLine()
 	if (err != nil && err != io.EOF) || !strings.Contains(string(line), constantFTP.CodeComingList) {
-		log.Fatalf("Fin liste %s", err.Error())
+		return err, base
 	}
 	if currentDepth == maxDepth {
 		currentNode.AddChildren(children)
-		return nil
+		return nil, base
 	}
 	for _, child := range children {
 		if child.IsDirectory {
-			dataConn, err = GetDataConn(mainConn)
+			dataConn, err = conn.GetDataConn()
 			if err != nil {
-				log.Fatalf("rip : %s", err.Error())
+				return err, currentNode.Filepath
 			}
 
-			req, err = constructStringToSend("CWD", child.Filepath)
+			err := conn.SendCwd(readerMainConn, child.Filepath)
 			if err != nil {
-				log.Fatalf(err.Error())
+				return err, currentNode.Filepath
 			}
-			_, err = mainConn.Write([]byte(req))
+			err, lastDirVisited := conn.ListFtpFiles(dataConn, child.Filepath, maxDepth, currentDepth+1, child)
 			if err != nil {
-				log.Fatalf(err.Error())
+				return err, lastDirVisited
 			}
 
-			line, _, err = readerMainConn.ReadLine()
-			if err != nil || !strings.Contains(string(line), constantFTP.CodeCWDOk) {
-				fmt.Printf("Err while readline")
-			}
-
-			err = SendList(mainConn, dataConn, child.Filepath, maxDepth, currentDepth+1, child)
+			err = dataConn.MainConn.Close()
 			if err != nil {
-				log.Fatalf("rip : %s", err.Error())
+				return err, currentNode.Filepath
 			}
-
-			err = dataConn.Close()
 		}
 	}
 	currentNode.AddChildren(children)
-	return nil
+	return err, ""
 }
 
 // parseAnswerList parse the asnwer from the list command, add absolute path to the global array of struct paths
@@ -200,6 +185,9 @@ func parseAnswerList(lines []string, base string, depth int) []*tree2.Node {
 * getIPAndPortFromResponse parse the reply from PASV request to calculate and return the IP address and the port*
  */
 func getIPAndPortFromResponse(reply string) (error, string, int) {
+	if len(reply) == 0 {
+		return errors.New("reply bizaroide %s"), "", 0
+	}
 	responseForIPAndPort := reply[strings.Index(reply, "(")+1 : strings.LastIndex(reply, ")")]
 	arrayResponseForIPAndPort := strings.Split(responseForIPAndPort, ",")
 	ipAddr := strings.Join(arrayResponseForIPAndPort[0:4], ".")
@@ -216,7 +204,7 @@ func getIPAndPortFromResponse(reply string) (error, string, int) {
 }
 
 // getListLines read and parse the lines returned by the reader, return a string array of the line
-func getListLines(readerDataConn *bufio.Reader) []string {
+func getListLines(readerDataConn *bufio.Reader) ([]string, error) {
 	lines := make([]string, 0)
 	line, _, err := readerDataConn.ReadLine()
 	for err == nil {
@@ -224,7 +212,7 @@ func getListLines(readerDataConn *bufio.Reader) []string {
 		line, _, err = readerDataConn.ReadLine()
 	}
 	if err != nil && err != io.EOF {
-		log.Fatalf(err.Error())
+		return nil, err
 	}
-	return lines
+	return lines, nil
 }

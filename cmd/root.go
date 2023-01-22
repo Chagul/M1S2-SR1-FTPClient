@@ -1,18 +1,17 @@
 package cmd
 
 import (
+	"fmt"
 	"github.com/spf13/cobra"
 	"log"
 	"net"
-	"tree-ftp/tcpconn"
+	"tree-ftp/ftpconn"
 	model "tree-ftp/tree"
 	constant "tree-ftp/util/global"
 )
 
-const minimumArgs = 2
-
 var rootTree = model.Node{}
-
+var Addr *net.TCPAddr
 var (
 	addressServer string
 	port          int
@@ -27,13 +26,13 @@ var (
 		Short: "Display a tree-like output of the content of a ftp server ",
 		Run: func(cmd *cobra.Command, args []string) {
 
-			addr, err := tcpconn.GetIpFromURL(port, addressServer)
+			Addr, err := ftpconn.GetIpFromURL(port, addressServer)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
 
-			conn, err := net.DialTCP(constant.TcpString, nil, addr)
-
+			conn, err := net.DialTCP(constant.TcpString, nil, Addr)
+			ftpConn := ftpconn.FTPConn{MainConn: conn}
 			if err != nil {
 				log.Fatal(err.Error(), "are you sure your port is correct ?")
 			}
@@ -42,11 +41,11 @@ var (
 			if err != nil {
 				log.Fatal(err.Error())
 			}
-			err = tcpconn.UserConn(user, password, conn)
+			err = ftpConn.UserConn(user, password)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
-			dataConn, err := tcpconn.GetDataConn(conn)
+			dataConn, err := ftpConn.GetDataConn()
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
@@ -55,11 +54,12 @@ var (
 			rootTree.Filename = "/"
 			rootTree.IsDirectory = true
 			rootTree.Depth = 0
-			err = tcpconn.SendList(conn, dataConn, rootTree.Filepath, maxDepth, 1, &rootTree)
+			err, lastDirVisited := ftpConn.ListFtpFiles(dataConn, rootTree.Filepath, maxDepth, 1, &rootTree)
 			if err != nil {
-				log.Fatal(err)
+				fmt.Printf("%s while trying to visit %s\n Seems like the connection to server is lost \naborting\n", err, lastDirVisited)
+				return
 			}
-			err = dataConn.Close()
+			err = dataConn.MainConn.Close()
 			if err != nil {
 				log.Fatalf("Err while closing conn\n")
 			}
@@ -77,9 +77,12 @@ func Execute() {
 	rootCmd.Flags().IntVar(&maxDepth, "maxDepth", constant.DefaultMaxDepth, "Max depths of tree")
 	rootCmd.Flags().BoolVar(&fullPath, "fullPath", false, "Display fullpath of files")
 	rootCmd.Flags().BoolVar(&directoryOnly, "directoryOnly", false, "Display directories only")
-	rootCmd.MarkFlagsRequiredTogether("addressServer", "port")
-	rootCmd.MarkFlagsRequiredTogether("user", "password")
 	err := rootCmd.MarkFlagRequired("addressServer")
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	rootCmd.MarkFlagsRequiredTogether("user", "password")
+	err = rootCmd.MarkFlagRequired("addressServer")
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
