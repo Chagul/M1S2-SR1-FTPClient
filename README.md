@@ -7,7 +7,7 @@ une forme semblable au résultat que produit la commande linux tree.
 
 ## Installation
 
-### Prerequis
+### Prérequis
 Afin d'executer ce programme, il faut tout d'abord installer [le langage Go](https://go.dev/doc/install)
 
 Une fois cette étape effectuée, il suffit de se rendre à la racine de ce dépôt et d'exécuter la commande 
@@ -29,7 +29,7 @@ protocole FTP, mais la possibilité est laissée à l'utilisateur de le précise
 la valeur 21 sera donc prise.
 
 Dans le cas d'une connexion qui requiert une authentification, il est possible de préciser les flags ``--user`` et ``
---password`.
+--password``.
 Si l'un des deux est précisé, l'autre est obligatoire. Sans les préciser, les valeurs "anonymous" seront utilisées pour
 l'user et le mot de passe.
 
@@ -161,6 +161,64 @@ func GetIpFromURL(port int, addressServer string) (*net.TCPAddr, error) {
 }
 ```
 
+La fonction SendList est celle qui interagit directement avec le serveur FTP, celle ci propose une gestion d'erreur plus poussée
+```go
+// SendList send ftp List command and control the result with readerMainConn
+func (conn *FTPConn) SendList(readerMainConn *bufio.Reader) error {
+	stringToSend := commandFTPConstant.List + "\n" //construct query to send (LIST\n)
+	var err error = nil
+	for i := 0; i < constant.MaxRetry; i++ { // 3 retry
+		_, err := conn.MainConn.Write([]byte(stringToSend)) //write on socket the request
+		if err != nil {
+			if errors.Is(err, syscall.EPIPE) { // if we got syscall.EPIPE error, the connection is broken no need to retry
+				return err
+			}
+			fmt.Printf("Err SendList %s, retrying in 10s\n", err.Error()) 
+			time.Sleep(constant.TimeBeforeRetry * time.Second) // wait 10 seconds
+			continue // jump to next iteration
+		}
+		line, _, err := readerMainConn.ReadLine() //read result from control connection
+		if err != nil || !strings.Contains(string(line), constantFTP.CodeOkList) { //if we got an error or the result is not as it should be
+			var stringToPrint = ""
+			if err != nil { // necessary to avoid nil pointer in case it's the result that's not ok
+				stringToPrint = fmt.Sprintf("Err SendList %s, retrying in 10s\n", err.Error())
+			} else {
+				stringToPrint = fmt.Sprintf("Wrong code response : %s\n", string(line))
+			}
+			fmt.Printf(stringToPrint)
+			time.Sleep(constant.TimeBeforeRetry * time.Second) // wait 10s
+			continue //jump to next iteration
+		} else {
+			break //no error, we can exit the loop
+		}
+	}
+	if err != nil { //still have to check if we left the loop before or after all retry
+		fmt.Printf("CWD failed 3 times, aborting")
+		return err
+	}
+
+	return nil //everything is ok
+}
+```
+
+L'etablissement de la connexion est faite grâce à la fonction suivante, la gestion des erreurs n'est ici pas montrée mais
+bien presente dans la fonction complète.
+
+```go
+// GetDataConn Create a new data connection from mainConn, that send PASV/**
+func (conn *FTPConn) GetDataConn() (*FTPConn, error) {
+	readerMainConn := bufio.NewReader(conn.MainConn) //Create reader from control connection 
+	line, err := conn.SendPasv(readerMainConn) // send PASV command and retrieve the result
+	err, ipAddrDataConn, portDataConn := getIPAndPortFromResponse(line) //parse the result to extract ip and port
+	ip := &net.TCPAddr{ //instanciate the IP object
+		IP:   net.ParseIP(ipAddrDataConn),
+		Port: portDataConn,
+	}
+	connData, err := net.DialTCP(constant.TcpString, nil, ip) //create the tcp socket
+	return &FTPConn{MainConn: connData}, nil //encapsulate the tcp socket in FTPConn type
+}
+```
+
 ## Gestion des erreurs
 
 Une mécanique de retry est mise en place dans ce programme. En effet chaque opération avec le serveur est répétée jusqu'à 3 fois.
@@ -171,6 +229,9 @@ Afin de faciliter la gestion des erreurs et comme il est de bonne pratique de le
 jusqu'a **root.go**. Si celle-ci necessitent un arrêt du programme, c'est à cet endroit que cela sera fait. En utilisant cette
 méthode de programmation, il serait possible dans une évolution du programme d'implementer un retry sur tout un pan de celui-ci,
 en cas d'erreur grave.
+
+En plus des erreurs liés à l'execution des fonctions, tel l'I/O, un nombre important de code d'erreur pouvant être renvoyés par
+une commande FTP est géré. 
 
 ## UML
 
