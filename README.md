@@ -42,6 +42,21 @@ par défaut celui-ci est à false.
 L'option ``--fullPath`` sert à afficher les chemins complets des fichiers lors du tree. Elle prends un booléen en paramètre,
 par défaut celui-ci est à false.
 
+### Exemple d'utilisation
+
+``./tree-ftp --addressServer="l'adresse_du_serveur"``
+
+``./tree-ftp --addressServer="l'adresse_du_serveur" --user="USERNAME" --password="PASSWORD"``
+
+``./tree-ftp --addressServer="l'adresse_du_serveur" --maxDepth="3"``
+
+``./tree-ftp --addressServer="l'adresse_du_serveur" --directoryOnly="True"``
+
+``./tree-ftp --addressServer="l'adresse_du_serveur" --fullPath="True"``
+
+``./tree-ftp --addressServer="l'adresse_du_serveur" --directoryOnly="True"  --fullPath="True" --maxDepth="3"``
+
+
 ## Fonctionnement du programme
 Le programme à une logique simple. Dans un premier temps nous allons établir une connexion avec l'url fournie lors du lancement
 de la CLI. Le protocole FTP fonctionne de tel manière qu'il y a une connexion pour les commandes et leur retour, et une pour les données.
@@ -53,23 +68,34 @@ nouvelle connexion avec ``PASV`` est necessaire à chaque ``CWD``.
 
 ## Architecture
 
-La base du programme est dans ``cmd/root.go``, grâce a la bibliothèque [Cobra](https://github.com/spf13/cobra), c'est à cet
+La base du programme est dans **cmd/root.go**, grâce a la bibliothèque [Cobra](https://github.com/spf13/cobra), c'est à cet
 endroit que sont definies les options attendues, qu'elles sont parsées et que leur valeur recupérées. Grâce à cela nous 
 pouvons établir la connexion TCP qui nous servira à communiquer avec le serveur FTP. Ensuite tout ce passe dans le package
-``tcpconn``.
+**ftpconn**.
 Ce package concerne toute les interactions serveur, ce qui permet de séparer les responsabilités.
 
-L'architecture logiciel est plus compliquée en Go, ce langage n'étant pas un langage orienté objet, cependant j'ai fait l'utilisation des 
-[pointer receivers](https://go.dev/tour/methods/4), notamment dans le cadre du type Node, qui représente un arbre de données
-pour l'arborescence des fichiers. Les méthodes que j'ai ainsi pu établir sur ce type particulier lui étaient liées. Voici
-le fichier model.go, avec la definition de la structure Node et ses fonctions liées. Cela nous permet de facilement ajouter 
-des fonctionnalités dans le type node si necessaire, sans avoir à faire trop de refactoring.
+L'architecture logiciel est plus compliquée en Go, ce langage n'étant pas un langage orienté objet, cependant l'utilisation des 
+[pointer receivers](https://go.dev/tour/methods/4) est d'une grande aide. Par exemple, dans le cadre du type Node, qui
+représente un arbre de données pour l'arborescence des fichiers, des méthodes ont pu être établie sur ce type particulier. 
+Cela permet de facilement ajouter des fonctionnalités dans le type node si necessaire, sans avoir à faire trop de refactoring. 
 
-Voici à quoi ressemble cette classe
+Le package **ftpconn** est donc divisé en deux fichier _ftpconn_ et _ftpCommand_. Le premier definit un type qui encapsule le type net.TCPConn.
+En procédant ainsi, nous pouvons ainsi d'étendre le type net.TCPConn, en y ajoutant des méthodes, tout en gardant l'accès
+à celle de la socket tcp.
+FtpCommand quand à lui concerne la couche qui interagit directement avec le serveur, avec les envois et traitement des résultats
+des commandes FTP.
 
 ![img.png](rsc/img.png)
 
-![img.png](rsc/uml.png)
+## Commandes implémentées
+
+| Commande FTP |                               Effet                                |                      Prends en paramètres                       | Retry |
+|:------------:|:------------------------------------------------------------------:|:---------------------------------------------------------------:|:-----:|
+|     USER     |                 Commence la procédure de connexion                 |                      Le nom d'utilisateur                       |   3   |
+|     PASS     |                 Permet de vérifier le mot de passe                 |                Le mot de passe de l'utilisateur                 |   3   |
+|     PASV     | Permet de demander une ip et un port pour une connexion de données |              Le reader de la connexion principale               |   3   |
+|     LIST     |               Liste les fichiers du dossier courant                |              Le reader de la connexion principale               |   3   |
+|     CWD      |                    Change le repertoire courant                    |              Le reader de la connexion principale               |   3   |
 
 ## Code samples
 
@@ -78,45 +104,69 @@ d'utilisateur s'ils sont fournis.
 
 ```go 
 // UserConn Init TCP conn with given user and pwd, if both are not precised, anonymous is the default/**
-func UserConn(user string, pwd string, conn *net.TCPConn) error {
+func (conn *FTPConn) UserConn(user string, pwd string) error {
     fmt.Println("User connexion")
-    stringToSend, err := constructStringToSend("USER", user) //construit la requete avec le nom d'utilisateur
+    err := conn.SendUser(user) //send the user cmd with user
     if err != nil {
         return err
     }
 
-    _, err = conn.Write([]byte(stringToSend)) //Envoie la requete
+    err = conn.SendPass(pwd) // send the pass cmd with pass
     if err != nil {
         return err
     }
 
     reply := make([]byte, constant.SizeAnswer)
-    _, err = conn.Read(reply) // lis la réponse, si celle ci est nég
-    if err != nil {
-        return err
-    }
+    _, err = conn.MainConn.Read(reply) // read result from mainConn
 
-    stringToSend, err = constructStringToSend("PASS", pwd) //construit la requete pour se connecter
-    if err != nil {
-        return err
-    }
+    if err != nil || !strings.Contains(string(reply), constantFTP.CodeLoginOk) { 
+        if strings.Contains(string(reply), constantFTP.CodeLoginNotOk) { //if login not ok
+            if retryLogin == constant.MaxRetry { //retry 3 times
+                log.Fatalf("too many retry for login/password ")
+            }
+            fmt.Println("Wrong password/login !")
+            fmt.Println("Enter your login")
+            reader := bufio.NewReader(os.Stdin)
+            login, _ := reader.ReadString('\n')
+            login = strings.Replace(login, "\n", "", -1)
+            fmt.Println("Enter your password")
+            password, _ := reader.ReadString('\n')
+            password = strings.Replace(password, "\n", "", -1)
+            retryLogin++
+            return conn.UserConn(login, password) //retry
 
-    _, err = conn.Write([]byte(stringToSend)) //envoie de la requête
-    if err != nil {
-        return err
-    }
-
-    reply = make([]byte, constant.SizeAnswer)
-    _, err = conn.Read(reply) //lis la réponse
-    if err != nil {
-        return err
+        }
+        return err //error either from read or too many fail
     }
     fmt.Println("User connexion successful")
-    return nil
+    return nil // no error
 }
 ```
 
+La fonction suivante permet de trouver l'ip à partir d'une addresse fournie.
+```go
+// GetIpFromURL return the found IP for the given addressServer and port
+func GetIpFromURL(port int, addressServer string) (*net.TCPAddr, error) {
+    ip, err := net.LookupIP(addressServer) //Use the local resolver to return IPs for the given address
+    if err != nil {
+        return nil, err
+    }
+    fmt.Printf("IP adress found for %s : %s\n", addressServer, ip[0].String())
 
-k
+	addr := &net.TCPAddr{ //create the IP "object" with the first one found
+		IP:   ip[0],
+		Port: port,
+	}
+	return addr, nil
+}
+```
+
+## Gestion des erreurs
+
+Une mécanique de retry est mise en place dans ce programme. En effet chaque opération avec le serveur est répétée jusqu'à 3 fois.
+C'est un mécanisme important car il peut y avoir une micro coupure avec le connexion distante, et si celle-ci tombe au mauvais 
+moment, cela provoquerait un arrêt total du programme.
+
+
 
 ## Vidéo de fonctionnement

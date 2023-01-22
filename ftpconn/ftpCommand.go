@@ -12,6 +12,7 @@ import (
 	constant "tree-ftp/util/global"
 )
 
+// SendUser send FTP User command with the given user
 func (conn *FTPConn) SendUser(user string) error {
 	stringToSend := commandFTPConstant.User + " " + user + "\n"
 	_, err := conn.MainConn.Write([]byte(stringToSend))
@@ -27,6 +28,7 @@ func (conn *FTPConn) SendUser(user string) error {
 	return nil
 }
 
+// SendPass send ftp Pass command with the given password
 func (conn *FTPConn) SendPass(password string) error {
 	stringToSend := commandFTPConstant.Pass + " " + password + "\n"
 
@@ -37,6 +39,7 @@ func (conn *FTPConn) SendPass(password string) error {
 	return nil
 }
 
+// SendList send ftp List command and control the result with readerMainConn
 func (conn *FTPConn) SendList(readerMainConn *bufio.Reader) error {
 	stringToSend := commandFTPConstant.List + "\n"
 	var err error = nil
@@ -73,6 +76,7 @@ func (conn *FTPConn) SendList(readerMainConn *bufio.Reader) error {
 	return nil
 }
 
+// SendCwd Send Ftp CWD command with the given filepath, and control the result on readerMainConn
 func (conn *FTPConn) SendCwd(readerMainConn *bufio.Reader, filepath string) error {
 	stringToSend := commandFTPConstant.Cwd + " " + filepath + "\n"
 	var err error = nil
@@ -107,6 +111,7 @@ func (conn *FTPConn) SendCwd(readerMainConn *bufio.Reader, filepath string) erro
 	return nil
 }
 
+// SendPasv Send Ftp Pasv and control the result on readerMainConn
 func (conn *FTPConn) SendPasv(readerMainConn *bufio.Reader) (string, error) {
 	stringToSend := commandFTPConstant.Pasv + "\n"
 	var err error = nil
