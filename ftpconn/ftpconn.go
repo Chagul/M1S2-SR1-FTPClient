@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"golang.org/x/term"
 	"io"
 	"log"
 	"net"
@@ -50,10 +51,9 @@ func (conn *FTPConn) UserConn(user string, pwd string) error {
 			login, _ := reader.ReadString('\n')
 			login = strings.Replace(login, "\n", "", -1)
 			fmt.Println("Enter your password")
-			password, _ := reader.ReadString('\n')
-			password = strings.Replace(password, "\n", "", -1)
+			password, _ := term.ReadPassword(0)
 			retryLogin++
-			return conn.UserConn(login, password)
+			return conn.UserConn(login, string(password))
 
 		}
 		return err
